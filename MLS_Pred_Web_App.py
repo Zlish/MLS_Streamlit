@@ -6,6 +6,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
+# ---------- Data Cleaning ----------
 def clean_fixtures_df(df):
     df = df.copy()
     if 'Date' in df.columns:
@@ -42,6 +43,7 @@ def clean_fixtures_df(df):
     df = df.dropna(subset=['home', 'away', 'home_goals', 'away_goals']).reset_index(drop=True)
     return df
 
+# ---------- Feature Engineering ----------
 def add_features(df):
     df = df.sort_values('date').reset_index(drop=True)
     teams = pd.unique(df[['home', 'away']].values.ravel('K'))
@@ -85,6 +87,7 @@ def add_features(df):
 
     return pd.DataFrame(rows)
 
+# ---------- Team Stats ----------
 def load_team_stats(df):
     df.columns = df.columns.str.strip().str.lower()
     if 'squad' in df.columns:
@@ -98,6 +101,7 @@ def merge_team_stats(feats_df, team_stats_df):
     merged.drop(columns=['team'], inplace=True)
     return merged
 
+# ---------- Modeling ----------
 def prepare_for_modeling(feats_df):
     df = feats_df.copy()
     le_home = LabelEncoder()
@@ -153,43 +157,39 @@ def predict_total_goals(model, le_home, le_away, feats_df, selected_features, ho
     pred_total_goals = max(0, round(pred_total_goals))
     return pred_total_goals
 
+# ---------- Streamlit App ----------
 def main():
     st.title("MLS Match Total Goals Predictor")
 
-    st.sidebar.header("Upload CSV files")
-    fixtures_file = st.sidebar.file_uploader("Upload Fixtures CSV", type=['csv'])
-    team_stats_file = st.sidebar.file_uploader("Upload Team Stats CSV", type=['csv'])
+    # Load directly from GitHub
+    fixtures_url = "https://raw.githubusercontent.com/Zlish/MLS_Streamlit/main/MLS_2025_Fixtures.csv"
+    team_stats_url = "https://raw.githubusercontent.com/Zlish/MLS_Streamlit/main/MLS_Team_Stats.csv"
 
-    if fixtures_file and team_stats_file:
-        raw_fixtures = pd.read_csv(fixtures_file)
-        raw_team_stats = pd.read_csv(team_stats_file)
+    try:
+        raw_fixtures = pd.read_csv(fixtures_url)
+        raw_team_stats = pd.read_csv(team_stats_url)
 
-        try:
-            clean = clean_fixtures_df(raw_fixtures)
-            feats = add_features(clean)
-            team_stats = load_team_stats(raw_team_stats)
-            merged_feats = merge_team_stats(feats, team_stats)
+        clean = clean_fixtures_df(raw_fixtures)
+        feats = add_features(clean)
+        team_stats = load_team_stats(raw_team_stats)
+        merged_feats = merge_team_stats(feats, team_stats)
 
-            X, y, le_home, le_away = prepare_for_modeling(merged_feats)
-            model, rmse = train_model(X, y)
+        X, y, le_home, le_away = prepare_for_modeling(merged_feats)
+        model, rmse = train_model(X, y)
 
-            st.write(f"Model trained. RMSE on test set: {rmse:.3f}")
+        st.write(f"Model trained. RMSE on test set: {rmse:.3f}")
 
-            teams = sorted(list(pd.unique(merged_feats[['home', 'away']].values.ravel('K'))))
+        teams = sorted(list(pd.unique(merged_feats[['home', 'away']].values.ravel('K'))))
+        home_team = st.selectbox("Select Home Team:", teams)
+        away_team = st.selectbox("Select Away Team:", teams)
 
-            home_team = st.selectbox("Select Home Team:", teams)
-            away_team = st.selectbox("Select Away Team:", teams)
+        if st.button("Predict Total Goals"):
+            pred_goals = predict_total_goals(model, le_home, le_away, merged_feats, X.columns.tolist(), home_team, away_team)
+            if pred_goals is not None:
+                st.success(f"Predicted total goals for {home_team} vs {away_team}: {pred_goals}")
 
-            if st.button("Predict Total Goals"):
-                pred_goals = predict_total_goals(model, le_home, le_away, merged_feats, X.columns.tolist(), home_team, away_team)
-                if pred_goals is not None:
-                    st.success(f"Predicted total goals for {home_team} vs {away_team}: {pred_goals}")
-
-        except Exception as e:
-            st.error(f"Error processing data: {e}")
-
-    else:
-        st.info("Please upload both Fixtures and Team Stats CSV files to proceed.")
+    except Exception as e:
+        st.error(f"Error processing data: {e}")
 
 if __name__ == "__main__":
     main()
