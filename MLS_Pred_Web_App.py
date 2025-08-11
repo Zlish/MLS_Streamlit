@@ -167,6 +167,7 @@ def predict_match(model, le_home, le_away, feats_df, selected_features, home_tea
     home_id = le_home.transform([home_team])[0]
     away_id = le_away.transform([away_team])[0]
 
+    # Base features
     base_features = {
         'home_id': home_id,
         'away_id': away_id,
@@ -178,13 +179,15 @@ def predict_match(model, le_home, le_away, feats_df, selected_features, home_tea
         'away_form': away_form
     }
 
-    pred_dict = {feat: 0.0 for feat in selected_features}
-    pred_dict.update(base_features)
-    X_pred = pd.DataFrame([pred_dict])[selected_features]
-    
+    # Create prediction DataFrame with same columns as training
+    X_pred = pd.DataFrame([[base_features.get(col, 0.0) for col in selected_features]],
+                          columns=selected_features)
+
+    # Predict
     pred_class = model.predict(X_pred)[0]
     pred_proba = model.predict_proba(X_pred)[0]
     return pred_class, dict(zip(model.classes_, pred_proba))
+
 
 # ==============================
 # Streamlit UI
@@ -217,3 +220,4 @@ if st.button("Predict Match Result"):
     st.success(f"Predicted Result: **{pred_class}**")
     st.write("Probabilities:")
     st.json(pred_proba)
+
