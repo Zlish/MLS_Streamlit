@@ -6,13 +6,9 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
-# GitHub CSV URLs
 FIXTURES_URL = "https://raw.githubusercontent.com/Zlish/MLS_Streamlit/main/MLS_2025_Fixtures.csv"
 TEAM_STATS_URL = "https://raw.githubusercontent.com/Zlish/MLS_Streamlit/main/MLS_Team_Stats.csv"
 
-# ==============================
-# Original helper functions
-# ==============================
 def clean_fixtures_df(df):
     df = df.copy()
     if 'Date' in df.columns:
@@ -178,17 +174,21 @@ def predict_match(model, le_home, le_away, feats_df, selected_features, home_tea
         'away_form': away_form
     }
 
-    # Construct prediction DataFrame ensuring correct feature order and filling missing with 0
-    X_pred = pd.DataFrame([[base_features.get(feat, 0.0) for feat in selected_features]],
-                          columns=selected_features)
+    feature_names = getattr(model, "feature_names_in_", None)
+    if feature_names is None:
+        feature_names = selected_features
+
+    data = []
+    for feat in feature_names:
+        data.append(base_features.get(feat, 0.0))
+
+    X_pred = pd.DataFrame([data], columns=feature_names)
 
     pred_class = model.predict(X_pred)[0]
     pred_proba = model.predict_proba(X_pred)[0]
     return pred_class, dict(zip(model.classes_, pred_proba))
 
-# ==============================
 # Streamlit UI
-# ==============================
 st.title("⚽ MLS Match Prediction App")
 
 @st.cache_data
@@ -204,16 +204,30 @@ def load_and_train():
 
 merged_feats, model, selected_features, le_home, le_away, report, cv_score = load_and_train()
 
-st.subheader("Model Performance")
-st.write(f"**5-Fold CV Accuracy:** {cv_score:.3f}")
-st.dataframe(pd.DataFrame(report).T)
-
 team_list = sorted(list(pd.unique(merged_feats[['home', 'away']].values.ravel('K'))))
 home_team = st.selectbox("Select Home Team", team_list)
 away_team = st.selectbox("Select Away Team", team_list)
 
 if st.button("Predict Match Result"):
     pred_class, pred_proba = predict_match(model, le_home, le_away, merged_feats, selected_features, home_team, away_team)
-    st.success(f"Predicted Result: **{pred_class}**")
+    
+    # Map predicted class to actual team or draw
+    if pred_class == 'H':
+        winner = home_team
+    elif pred_class == 'A':
+        winner = away_team
+    else:
+        winner = "Draw"
+    
+    st.success(f"Predicted Winner: {winner}")
+    
     st.write("Probabilities:")
-    st.json(pred_proba)
+    for outcome in ['H', 'D', 'A']:
+        label = home_team if outcome == 'H' else (away_team if outcome == 'A' else "Draw")
+        prob = pred_proba.get(outcome, 0)
+        st.write(f"{label}: {prob:.2f}%")
+
+    with st.expander("Show Model Performance"):
+        st.subheader("Model Performance")
+        st.write(f"**5-Fold CV Accuracy:** {cv_score:.3f}")
+        st.dataframe(pd.DataFrame(report).T)
