@@ -4,7 +4,7 @@ import streamlit as st
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.metrics import classification_report
 
 FIXTURES_URL = "https://raw.githubusercontent.com/Zlish/MLS_Streamlit/main/MLS_2025_Fixtures.csv"
 TEAM_STATS_URL = "https://raw.githubusercontent.com/Zlish/MLS_Streamlit/main/MLS_Team_Stats.csv"
@@ -131,7 +131,7 @@ def train_and_eval_with_feature_importance(X, y, importance_threshold=0.01):
     clf = RandomForestClassifier(n_estimators=300, random_state=42, class_weight=class_weights)
     clf.fit(X_train, y_train)
 
-    importances = pd.Series(clf.feature_importances_, index=X.columns)
+    importances = pd.Series(clf.feature_importances_, index=X.columns).sort_values(ascending=False)
     important_features = importances[importances >= importance_threshold].index.tolist()
 
     X_train_imp = X_train[important_features]
@@ -143,7 +143,7 @@ def train_and_eval_with_feature_importance(X, y, importance_threshold=0.01):
     scores = cross_val_score(clf_imp, X[important_features], y, cv=5, scoring='accuracy')
     
     report = classification_report(y_test, y_pred, output_dict=True)
-    return clf_imp, important_features, report, scores.mean()
+    return clf_imp, important_features, report, scores.mean(), importances
 
 def predict_match(model, le_home, le_away, feats_df, selected_features, home_team, away_team, window=5):
     home_stats = feats_df[feats_df['home'] == home_team].tail(window)
@@ -199,10 +199,10 @@ def load_and_train():
     team_stats = load_team_stats(TEAM_STATS_URL)
     merged_feats = merge_team_stats(feats, team_stats)
     X, y, le_home, le_away = prepare_for_modeling(merged_feats)
-    model, selected_features, report, cv_score = train_and_eval_with_feature_importance(X, y)
-    return merged_feats, model, selected_features, le_home, le_away, report, cv_score
+    model, selected_features, report, cv_score, importances = train_and_eval_with_feature_importance(X, y)
+    return merged_feats, model, selected_features, le_home, le_away, report, cv_score, importances
 
-merged_feats, model, selected_features, le_home, le_away, report, cv_score = load_and_train()
+merged_feats, model, selected_features, le_home, le_away, report, cv_score, importances = load_and_train()
 
 team_list = sorted(list(pd.unique(merged_feats[['home', 'away']].values.ravel('K'))))
 home_team = st.selectbox("Select Home Team", team_list)
@@ -211,7 +211,6 @@ away_team = st.selectbox("Select Away Team", team_list)
 if st.button("Predict Match Result"):
     pred_class, pred_proba = predict_match(model, le_home, le_away, merged_feats, selected_features, home_team, away_team)
     
-    # Map predicted class to actual team or draw
     if pred_class == 'H':
         winner = home_team
     elif pred_class == 'A':
@@ -225,9 +224,17 @@ if st.button("Predict Match Result"):
     for outcome in ['H', 'D', 'A']:
         label = home_team if outcome == 'H' else (away_team if outcome == 'A' else "Draw")
         prob = pred_proba.get(outcome, 0)
-        st.write(f"{label}: {prob:.2f}%")
+        st.write(f"{label}: {prob:.0%}")
 
     with st.expander("Show Model Performance"):
         st.subheader("Model Performance")
         st.write(f"**5-Fold CV Accuracy:** {cv_score:.3f}")
         st.dataframe(pd.DataFrame(report).T)
+
+    with st.expander("Show Feature Importance"):
+        st.subheader("Feature Importance")
+        # Show feature importances sorted with values
+        feat_imp_df = importances.reset_index()
+        feat_imp_df.columns = ['Feature', 'Importance']
+        st.dataframe(feat_imp_df)
+
